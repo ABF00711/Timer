@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, QMargins, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QDateEdit,
@@ -81,7 +81,7 @@ class DashboardDialog(QDialog):
         self._chart = None
         if _HAS_CHARTS:
             self._chart = QChart()
-            self._chart.setTitle("Hours by work")
+            self._chart.setTitle("Time by work")
             self._chart.legend().setVisible(False)
             self._chart_view = QChartView(self._chart)
             self._chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -164,6 +164,10 @@ class DashboardDialog(QDialog):
 
         self._chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
 
+        max_name_len = max((len(n) for n in names), default=8)
+        left_margin = min(32 + max_name_len * 8, 480)
+        self._chart.setMargins(QMargins(int(left_margin), 20, 24, 44))
+
         bar_set = QBarSet(unit)
         for v in values:
             bar_set.append(float(v))
@@ -172,8 +176,10 @@ class DashboardDialog(QDialog):
         self._chart.addSeries(series)
 
         axis_y = QBarCategoryAxis()
-        for n in names:
-            axis_y.append(n)
+        # Do not use append(str) in a loop: PySide6 binds append to an overload that
+        # iterates the string and adds one category per character ("input" -> i,n,p,u,t).
+        axis_y.setCategories(names)
+        axis_y.setTruncateLabels(False)
         self._chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
         series.attachAxis(axis_y)
 
