@@ -60,7 +60,7 @@ def draw_icon(size: int) -> Image.Image:
 
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    sizes = (16, 24, 32, 48, 64, 128, 256)
+    sizes = (48, 64, 128, 256, 512, 1024, 2048)
     images = [draw_icon(s) for s in sizes]
     images[0].save(
         OUT,
