@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QMargins, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtCore import QDate, QMargins, QPointF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -36,8 +36,68 @@ try:
         QValueAxis,
     )
 
+    class OutsideLabelBarChartView(QChartView):
+        """Paints value labels to the right of each bar (Qt's LabelsOutsideEnd is broken for QHorizontalBarSeries)."""
+
+        def __init__(self, chart: QChart, parent=None) -> None:
+            super().__init__(chart)
+            self._bar_series: QHorizontalBarSeries | None = None
+            self._label_values: list[float] = []
+            self._label_suffix = ""
+            self._decimals = 2
+
+        def set_bar_outside_labels(
+            self,
+            series: QHorizontalBarSeries,
+            values: list[float],
+            suffix: str,
+            decimals: int,
+        ) -> None:
+            self._bar_series = series
+            self._label_values = list(values)
+            self._label_suffix = suffix
+            self._decimals = decimals
+            QTimer.singleShot(0, self._repaint_viewport)
+            QTimer.singleShot(80, self._repaint_viewport)
+
+        def clear_bar_labels(self) -> None:
+            self._bar_series = None
+            self._label_values = []
+            self._repaint_viewport()
+
+        def _repaint_viewport(self) -> None:
+            self.viewport().update()
+
+        def resizeEvent(self, event) -> None:
+            super().resizeEvent(event)
+            self.viewport().update()
+
+        def paintEvent(self, event) -> None:
+            super().paintEvent(event)
+            if not self._bar_series or not self._label_values:
+                return
+            chart = self.chart()
+            if chart is None:
+                return
+            p = QPainter(self.viewport())
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            p.setPen(QColor(30, 30, 30))
+            font = p.font()
+            font.setPointSize(9)
+            p.setFont(font)
+            fm = p.fontMetrics()
+            for i, val in enumerate(self._label_values):
+                pt = chart.mapToPosition(QPointF(float(val), i), self._bar_series)
+                vp = self.mapFromScene(chart.mapToScene(pt))
+                text = f"{val:.{self._decimals}f}{self._label_suffix}"
+                h = fm.height()
+                baseline = int(vp.y() - h / 2 + fm.ascent())
+                p.drawText(int(vp.x()) + 6, baseline, text)
+            p.end()
+
     _HAS_CHARTS = True
 except ImportError:
+    OutsideLabelBarChartView = None  # type: ignore[misc, assignment]
     _HAS_CHARTS = False
 
 
@@ -83,7 +143,7 @@ class DashboardDialog(QDialog):
             self._chart = QChart()
             self._chart.setTitle("Time by work")
             self._chart.legend().setVisible(False)
-            self._chart_view = QChartView(self._chart)
+            self._chart_view = OutsideLabelBarChartView(self._chart)
             self._chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
             self._chart_view.setMinimumHeight(240)
 
@@ -145,6 +205,7 @@ class DashboardDialog(QDialog):
         for ax in list(self._chart.axes()):
             self._chart.removeAxis(ax)
         if not totals:
+            self._chart_view.clear_bar_labels()
             return
 
         names = [t[0] for t in totals]
@@ -166,13 +227,15 @@ class DashboardDialog(QDialog):
 
         max_name_len = max((len(n) for n in names), default=8)
         left_margin = min(32 + max_name_len * 8, 480)
-        self._chart.setMargins(QMargins(int(left_margin), 20, 24, 44))
+        # Room for outside value labels (e.g. "12.345 h") past the bar end.
+        self._chart.setMargins(QMargins(int(left_margin), 20, 88, 44))
 
         bar_set = QBarSet(unit)
         for v in values:
             bar_set.append(float(v))
         series = QHorizontalBarSeries()
         series.append(bar_set)
+        series.setLabelsVisible(False)
         self._chart.addSeries(series)
 
         axis_y = QBarCategoryAxis()
@@ -190,6 +253,10 @@ class DashboardDialog(QDialog):
         axis_x.setMinorTickCount(0)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
         series.attachAxis(axis_x)
+
+        suffix = " min" if max_sec < 3600.0 else " h"
+        dec = 2 if max_sec < 3600.0 else 3
+        self._chart_view.set_bar_outside_labels(series, values, suffix, dec)
 
     def _export(self) -> None:
         start, end = self._range()
