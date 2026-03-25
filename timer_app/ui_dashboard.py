@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QDate, QMargins, QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDateEdit,
     QDialog,
     QFileDialog,
@@ -128,13 +129,17 @@ class DashboardDialog(QDialog):
         top.addWidget(refresh)
         top.addStretch()
 
-        self._table = QTableWidget(0, 4)
+        self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(
-            ["Work", "Start (local)", "End (local)", "Duration"]
+            ["Delete", "Work", "Start (local)", "End (local)", "Duration"]
         )
-        self._table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(0, 56)
+        for col in range(1, 5):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
 
         self._chart_view: QWidget | None = None
         self._chart = None
@@ -151,12 +156,16 @@ class DashboardDialog(QDialog):
         if self._chart_view is not None:
             self._split.addWidget(self._chart_view)
 
+        self._btn_delete = QPushButton("Delete selected")
+        self._btn_delete.clicked.connect(self._delete_selected_sessions)
+
         exp = QPushButton("Export CSV…")
         exp.clicked.connect(self._export)
         imp = QPushButton("Import CSV…")
         imp.clicked.connect(self._import)
 
         btn_row = QHBoxLayout()
+        btn_row.addWidget(self._btn_delete)
         btn_row.addWidget(exp)
         btn_row.addWidget(imp)
         btn_row.addStretch()
@@ -166,6 +175,35 @@ class DashboardDialog(QDialog):
         root.addWidget(self._split)
         root.addLayout(btn_row)
 
+        self._reload()
+
+    def _delete_selected_sessions(self) -> None:
+        ids: list[int] = []
+        for row in range(self._table.rowCount()):
+            it = self._table.item(row, 0)
+            if it is None:
+                continue
+            if it.checkState() != Qt.CheckState.Checked:
+                continue
+            sid = it.data(Qt.ItemDataRole.UserRole)
+            if sid is not None:
+                ids.append(int(sid))
+        if not ids:
+            QMessageBox.information(
+                self, "Delete", "Check one or more sessions in the Delete column first."
+            )
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete sessions",
+            f"Permanently delete {len(ids)} session(s)? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for sid in ids:
+            self._db.delete_session(sid)
         self._reload()
 
     def _range(self) -> tuple[datetime, datetime]:
@@ -183,20 +221,45 @@ class DashboardDialog(QDialog):
         start, end = self._range()
         rows = session_rows_clipped(self._db, start, end)
         self._table.setRowCount(len(rows))
-        for i, (name, s, e, _) in enumerate(rows):
-            self._table.setItem(i, 0, QTableWidgetItem(name))
-            self._table.setItem(
-                i, 1, QTableWidgetItem(s.strftime("%Y-%m-%d %H:%M:%S"))
+        for i, (sid, name, s, e, _) in enumerate(rows):
+            cb = QTableWidgetItem()
+            cb.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
             )
-            self._table.setItem(
-                i, 2, QTableWidgetItem(e.strftime("%Y-%m-%d %H:%M:%S"))
+            cb.setCheckState(Qt.CheckState.Unchecked)
+            cb.setData(Qt.ItemDataRole.UserRole, sid)
+            cb.setTextAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
             )
+            self._table.setItem(i, 0, cb)
+
+            w_it = QTableWidgetItem(name)
+            w_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 1, w_it)
+
+            s_it = QTableWidgetItem(s.strftime("%Y-%m-%d %H:%M:%S"))
+            s_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 2, s_it)
+
+            e_it = QTableWidgetItem(e.strftime("%Y-%m-%d %H:%M:%S"))
+            e_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 3, e_it)
+
             dur_sec = (e - s).total_seconds()
-            it = QTableWidgetItem(format_duration_hms(dur_sec))
-            it.setTextAlignment(
+            d_it = QTableWidgetItem(format_duration_hms(dur_sec))
+            d_it.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            d_it.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
-            self._table.setItem(i, 3, it)
+            self._table.setItem(i, 4, d_it)
 
         if not _HAS_CHARTS or self._chart is None:
             return

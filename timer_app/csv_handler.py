@@ -4,20 +4,29 @@ import csv
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Union
 
 from timer_app.database import Database
 
 
 EXPORT_HEADERS = ("work_name", "start_local", "end_local", "duration_hours")
 
+ExportRow = Union[
+    Tuple[str, datetime, datetime, float],
+    Tuple[int, str, datetime, datetime, float],
+]
 
-def export_csv(path: Path, rows: Iterable[Tuple[str, datetime, datetime, float]]) -> None:
+
+def export_csv(path: Path, rows: Iterable[ExportRow]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(EXPORT_HEADERS)
-        for work_name, start, end, hours in rows:
+        for row in rows:
+            if len(row) == 5:
+                _, work_name, start, end, hours = row
+            else:
+                work_name, start, end, hours = row  # type: ignore[misc, assignment]
             w.writerow(
                 (
                     work_name,

@@ -140,6 +140,11 @@ class Database:
                 (_fmt_ts(end), session_id),
             )
 
+    def delete_session(self, session_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            return cur.rowcount > 0
+
     def get_open_session(self) -> Optional[SessionRow]:
         with self._connect() as conn:
             row = conn.execute(

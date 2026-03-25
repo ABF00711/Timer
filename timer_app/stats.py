@@ -34,11 +34,11 @@ def totals_by_work(
 
 def session_rows_clipped(
     db: Database, range_start: datetime, range_end: datetime
-) -> List[Tuple[str, datetime, datetime, float]]:
-    """Rows for table: work_name, start, end (clipped), hours."""
+) -> List[Tuple[int, str, datetime, datetime, float]]:
+    """Rows for table: session_id, work_name, start, end (clipped), duration_hours."""
     rows = db.sessions_in_range(range_start, range_end)
     now = local_now()
-    out: List[Tuple[str, datetime, datetime, float]] = []
+    out: List[Tuple[int, str, datetime, datetime, float]] = []
     for r in rows:
         eff_end = r.end_ts if r.end_ts else now
         s = max(r.start_ts, range_start)
@@ -46,5 +46,5 @@ def session_rows_clipped(
         if e <= s:
             continue
         sec = (e - s).total_seconds()
-        out.append((r.work_name, s, e, sec / 3600.0))
-    return sorted(out, key=lambda x: x[1])
+        out.append((r.id, r.work_name, s, e, sec / 3600.0))
+    return sorted(out, key=lambda x: x[2])
