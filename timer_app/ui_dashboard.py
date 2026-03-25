@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from timer_app.csv_handler import export_csv, import_csv
 from timer_app.session_service import SessionService
 from timer_app.stats import session_rows_clipped, totals_by_work
-from timer_app.timeutil import start_of_day, today_local
+from timer_app.timeutil import format_duration_hms, start_of_day, today_local
 
 try:
     from PySide6.QtCharts import (
@@ -42,27 +42,25 @@ try:
         def __init__(self, chart: QChart, parent=None) -> None:
             super().__init__(chart)
             self._bar_series: QHorizontalBarSeries | None = None
-            self._label_values: list[float] = []
-            self._label_suffix = ""
-            self._decimals = 2
+            self._bar_axis_values: list[float] = []
+            self._label_texts: list[str] = []
 
         def set_bar_outside_labels(
             self,
             series: QHorizontalBarSeries,
-            values: list[float],
-            suffix: str,
-            decimals: int,
+            bar_axis_values: list[float],
+            label_texts: list[str],
         ) -> None:
             self._bar_series = series
-            self._label_values = list(values)
-            self._label_suffix = suffix
-            self._decimals = decimals
+            self._bar_axis_values = list(bar_axis_values)
+            self._label_texts = list(label_texts)
             QTimer.singleShot(0, self._repaint_viewport)
             QTimer.singleShot(80, self._repaint_viewport)
 
         def clear_bar_labels(self) -> None:
             self._bar_series = None
-            self._label_values = []
+            self._bar_axis_values = []
+            self._label_texts = []
             self._repaint_viewport()
 
         def _repaint_viewport(self) -> None:
@@ -74,7 +72,7 @@ try:
 
         def paintEvent(self, event) -> None:
             super().paintEvent(event)
-            if not self._bar_series or not self._label_values:
+            if not self._bar_series or not self._bar_axis_values:
                 return
             chart = self.chart()
             if chart is None:
@@ -86,10 +84,11 @@ try:
             font.setPointSize(9)
             p.setFont(font)
             fm = p.fontMetrics()
-            for i, val in enumerate(self._label_values):
+            for i, (val, text) in enumerate(
+                zip(self._bar_axis_values, self._label_texts)
+            ):
                 pt = chart.mapToPosition(QPointF(float(val), i), self._bar_series)
                 vp = self.mapFromScene(chart.mapToScene(pt))
-                text = f"{val:.{self._decimals}f}{self._label_suffix}"
                 h = fm.height()
                 baseline = int(vp.y() - h / 2 + fm.ascent())
                 p.drawText(int(vp.x()) + 6, baseline, text)
@@ -131,7 +130,7 @@ class DashboardDialog(QDialog):
 
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(
-            ["Work", "Start (local)", "End (local)", "Hours"]
+            ["Work", "Start (local)", "End (local)", "Duration"]
         )
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -184,7 +183,7 @@ class DashboardDialog(QDialog):
         start, end = self._range()
         rows = session_rows_clipped(self._db, start, end)
         self._table.setRowCount(len(rows))
-        for i, (name, s, e, h) in enumerate(rows):
+        for i, (name, s, e, _) in enumerate(rows):
             self._table.setItem(i, 0, QTableWidgetItem(name))
             self._table.setItem(
                 i, 1, QTableWidgetItem(s.strftime("%Y-%m-%d %H:%M:%S"))
@@ -192,7 +191,8 @@ class DashboardDialog(QDialog):
             self._table.setItem(
                 i, 2, QTableWidgetItem(e.strftime("%Y-%m-%d %H:%M:%S"))
             )
-            it = QTableWidgetItem(f"{h:.3f}")
+            dur_sec = (e - s).total_seconds()
+            it = QTableWidgetItem(format_duration_hms(dur_sec))
             it.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
@@ -227,8 +227,8 @@ class DashboardDialog(QDialog):
 
         max_name_len = max((len(n) for n in names), default=8)
         left_margin = min(32 + max_name_len * 8, 480)
-        # Room for outside value labels (e.g. "12.345 h") past the bar end.
-        self._chart.setMargins(QMargins(int(left_margin), 20, 88, 44))
+        # Room for outside labels (e.g. "123:45:67") past the bar end.
+        self._chart.setMargins(QMargins(int(left_margin), 20, 100, 44))
 
         bar_set = QBarSet(unit)
         for v in values:
@@ -254,9 +254,8 @@ class DashboardDialog(QDialog):
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
         series.attachAxis(axis_x)
 
-        suffix = " min" if max_sec < 3600.0 else " h"
-        dec = 2 if max_sec < 3600.0 else 3
-        self._chart_view.set_bar_outside_labels(series, values, suffix, dec)
+        hms_labels = [format_duration_hms(sec) for sec in seconds]
+        self._chart_view.set_bar_outside_labels(series, values, hms_labels)
 
     def _export(self) -> None:
         start, end = self._range()
