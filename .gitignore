@@ -1,0 +1,11 @@
+build/
+dist/
+output/
+*.spec
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
