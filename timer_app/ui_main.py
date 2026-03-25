@@ -128,12 +128,19 @@ class MainWindow(QWidget):
     def _open_dashboard(self) -> None:
         from timer_app.ui_dashboard import DashboardDialog
 
+        # Tray / hidden parent: modal dialogs may not show unless this window is visible.
+        self.show()
+        self.raise_()
+        self.activateWindow()
         dlg = DashboardDialog(self._service, self)
         dlg.exec()
 
     def _open_settings(self) -> None:
         from timer_app.ui_settings import SettingsDialog
 
+        self.show()
+        self.raise_()
+        self.activateWindow()
         dlg = SettingsDialog(self._settings, self)
         if dlg.exec():
             self.refresh_after_settings()
