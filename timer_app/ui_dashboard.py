@@ -121,6 +121,9 @@ class DashboardDialog(QDialog):
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self._reload)
 
+        self._btn_delete = QPushButton("Delete selected")
+        self._btn_delete.clicked.connect(self._delete_selected_sessions)
+
         top = QHBoxLayout()
         top.addWidget(QLabel("From:"))
         top.addWidget(self._from)
@@ -128,18 +131,19 @@ class DashboardDialog(QDialog):
         top.addWidget(self._to)
         top.addWidget(refresh)
         top.addStretch()
+        top.addWidget(self._btn_delete)
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(
-            ["Delete", "Work", "Start (local)", "End (local)", "Duration"]
+            ["Work", "Start (local)", "End (local)", "Duration", "Delete"]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(0, 56)
-        for col in range(1, 5):
+        for col in range(0, 4):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(4, 56)
 
         self._chart_view: QWidget | None = None
         self._chart = None
@@ -156,16 +160,12 @@ class DashboardDialog(QDialog):
         if self._chart_view is not None:
             self._split.addWidget(self._chart_view)
 
-        self._btn_delete = QPushButton("Delete selected")
-        self._btn_delete.clicked.connect(self._delete_selected_sessions)
-
         exp = QPushButton("Export CSV…")
         exp.clicked.connect(self._export)
         imp = QPushButton("Import CSV…")
         imp.clicked.connect(self._import)
 
         btn_row = QHBoxLayout()
-        btn_row.addWidget(self._btn_delete)
         btn_row.addWidget(exp)
         btn_row.addWidget(imp)
         btn_row.addStretch()
@@ -180,7 +180,7 @@ class DashboardDialog(QDialog):
     def _delete_selected_sessions(self) -> None:
         ids: list[int] = []
         for row in range(self._table.rowCount()):
-            it = self._table.item(row, 0)
+            it = self._table.item(row, 4)
             if it is None:
                 continue
             if it.checkState() != Qt.CheckState.Checked:
@@ -222,6 +222,32 @@ class DashboardDialog(QDialog):
         rows = session_rows_clipped(self._db, start, end)
         self._table.setRowCount(len(rows))
         for i, (sid, name, s, e, _) in enumerate(rows):
+            w_it = QTableWidgetItem(name)
+            w_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 0, w_it)
+
+            s_it = QTableWidgetItem(s.strftime("%Y-%m-%d %H:%M:%S"))
+            s_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 1, s_it)
+
+            e_it = QTableWidgetItem(e.strftime("%Y-%m-%d %H:%M:%S"))
+            e_it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            )
+            self._table.setItem(i, 2, e_it)
+
+            dur_sec = (e - s).total_seconds()
+            d_it = QTableWidgetItem(format_duration_hms(dur_sec))
+            d_it.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            d_it.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            self._table.setItem(i, 3, d_it)
+
             cb = QTableWidgetItem()
             cb.setFlags(
                 Qt.ItemFlag.ItemIsUserCheckable
@@ -233,33 +259,7 @@ class DashboardDialog(QDialog):
             cb.setTextAlignment(
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
             )
-            self._table.setItem(i, 0, cb)
-
-            w_it = QTableWidgetItem(name)
-            w_it.setFlags(
-                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
-            )
-            self._table.setItem(i, 1, w_it)
-
-            s_it = QTableWidgetItem(s.strftime("%Y-%m-%d %H:%M:%S"))
-            s_it.setFlags(
-                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
-            )
-            self._table.setItem(i, 2, s_it)
-
-            e_it = QTableWidgetItem(e.strftime("%Y-%m-%d %H:%M:%S"))
-            e_it.setFlags(
-                Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
-            )
-            self._table.setItem(i, 3, e_it)
-
-            dur_sec = (e - s).total_seconds()
-            d_it = QTableWidgetItem(format_duration_hms(dur_sec))
-            d_it.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            d_it.setTextAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            self._table.setItem(i, 4, d_it)
+            self._table.setItem(i, 4, cb)
 
         if not _HAS_CHARTS or self._chart is None:
             return
